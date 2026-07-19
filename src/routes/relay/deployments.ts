@@ -68,7 +68,7 @@ deploymentsRouter.get("/", async (req, res, next) => {
     });
 
     const markupPercent = await getMarkupPercent();
-    const result = own.map((d) =>
+    const result = own.map((d: (typeof own)[number]) =>
       applyMarkup(
         {
           id: d.spheronDeploymentId,

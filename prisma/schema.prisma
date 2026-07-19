@@ -1,0 +1,87 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// A downstream consumer of Oru'el's relay API. In practice this is Podstack,
+// but modeled as many-clients so Oru'el can issue separate keys per
+// Podstack environment (prod/staging) or per Podstack customer if needed later.
+model Client {
+  id           String   @id @default(cuid())
+  name         String
+  apiKeyHash   String   @unique
+  apiKeyPrefix String // first 10 chars of the raw key, shown in dashboard for identification
+  active       Boolean  @default(true)
+  spendCapUsd  Float? // optional hard cap on billed (marked-up) spend; null = unlimited
+  createdAt    DateTime @default(now())
+  revokedAt    DateTime?
+
+  requests    RequestLog[]
+  deployments DeploymentRecord[]
+}
+
+// Global key/value settings. Currently used for "markup_percent" so it can
+// be changed live from the dashboard without a redeploy.
+model Setting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+}
+
+// One row per relayed API call. Used to build the "what has Podstack been
+// doing with our API" view.
+model RequestLog {
+  id         String   @id @default(cuid())
+  clientId   String
+  client     Client   @relation(fields: [clientId], references: [id])
+  method     String
+  path       String
+  statusCode Int
+  durationMs Int
+  createdAt  DateTime @default(now())
+  metadata   Json? // redacted query/body summary, e.g. { gpuType, provider, search }
+
+  @@index([clientId, createdAt])
+  @@index([path])
+}
+
+// One row per GPU instance deployment created through the relay. Tracks the
+// real Spheron cost alongside what we billed Podstack, so margin is visible.
+model DeploymentRecord {
+  id                  String    @id @default(cuid())
+  clientId            String
+  client              Client    @relation(fields: [clientId], references: [id])
+  spheronDeploymentId String    @unique
+  name                String?
+  provider             String
+  gpuType              String
+  offerId              String
+  region               String
+  instanceType         String
+  status               String
+  spheronHourlyRate    Float // raw rate Spheron charges Oru'el
+  spheronTotalCostUsd  Float     @default(0) // raw accrued cost from Spheron, refreshed by the poller
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+  terminatedAt         DateTime?
+
+  @@index([clientId, status])
+}
+
+model AdminUser {
+  id           String   @id @default(cuid())
+  username     String   @unique
+  passwordHash String
+  createdAt    DateTime @default(now())
+}
+
+model AdminSession {
+  token     String   @id
+  adminId   String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+}

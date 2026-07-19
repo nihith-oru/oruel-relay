@@ -1,0 +1,662 @@
+openapi: 3.0.3
+info:
+  title: Oru'el GPU Relay API
+  version: "1.0.0"
+  description: |
+    Oru'el's relay to the Spheron AI GPU network. Every endpoint here mirrors the
+    shape of Spheron's own API (https://docs.spheron.ai/api-reference) field-for-field,
+    so an integration built against Spheron's docs needs only two changes to work here:
+
+    1. Point the base URL at Oru'el's relay instead of `https://app.spheron.ai`.
+    2. Authenticate with `X-API-Key: <key Oru'el issued you>` instead of a Spheron
+       bearer token.
+
+    **Pricing note:** every dollar figure returned by this API (offer prices, hourly
+    rates, total cost, volume storage rates, etc.) already includes Oru'el's markup.
+    There is nothing further to add on your side - the number you see is the number
+    you're billed.
+
+    **Scoping note:** `GET /deployments` and `GET /deployments/{id}` only ever return
+    deployments launched with *your* API key. You cannot see or affect another
+    partner's instances.
+
+    Endpoints intentionally not exposed here (and why): `GET /balance` and
+    `GET /teams` from Spheron's own API expose Oru'el's internal account balance and
+    team membership - that's not relayed to any downstream partner.
+  contact:
+    name: Oru'el
+externalDocs:
+  description: Underlying provider API reference (Spheron AI) - useful background reading
+  url: https://docs.spheron.ai/api-reference
+
+servers:
+  - url: https://relay.oruel.example/api
+    description: Production (replace with your real deployed hostname)
+  - url: http://localhost:4000/api
+    description: Local development
+
+security:
+  - ApiKeyAuth: []
+
+tags:
+  - name: Providers
+  - name: GPU Offers
+  - name: Deployments
+  - name: Kubernetes
+  - name: SSH Keys
+  - name: Volumes
+
+paths:
+  /providers:
+    get:
+      tags: [Providers]
+      summary: List available GPU providers
+      description: Returns the subset of upstream providers currently configured (e.g. spheron-ai, voltage-park, massed-compute).
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { type: string }
+              example: ["voltage-park", "data-crunch", "massed-compute", "sesterce", "spheron-ai"]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /gpu-offers:
+    get:
+      tags: [GPU Offers]
+      summary: Browse the GPU catalog
+      description: Paginated, filterable, searchable list of every GPU offer available across providers. This is the main catalog you'd show end customers.
+      parameters:
+        - { name: page, in: query, schema: { type: integer, default: 1 } }
+        - { name: limit, in: query, schema: { type: integer, default: 10 } }
+        - { name: search, in: query, schema: { type: string }, description: "Search term for GPU model, e.g. 'rtx-4090'" }
+        - { name: sortBy, in: query, schema: { type: string, default: popularity } }
+        - { name: sortOrder, in: query, schema: { type: string, enum: [asc, desc], default: asc } }
+        - { name: instanceType, in: query, schema: { type: string, enum: [SPOT, DEDICATED, CLUSTER] } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GpuOfferPage" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+
+  /deployments:
+    post:
+      tags: [Deployments]
+      summary: Launch a GPU instance
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateDeploymentRequest" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Deployment" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+      x-rate-limit: "10 requests / 15 min, scoped to your API key"
+    get:
+      tags: [Deployments]
+      summary: List your deployments
+      description: Only returns deployments launched with your own API key.
+      parameters:
+        - name: status
+          in: query
+          schema: { type: string, enum: [active, inactive, running, deploying, terminated, failed, terminated-provider] }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Deployment" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /deployments/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [Deployments]
+      summary: Get deployment details
+      description: Refreshes live status/cost from the upstream provider before responding.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Deployment" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [Deployments]
+      summary: Rename a deployment
+      description: Only `name` is mutable. Every other attribute is immutable after creation - terminate and relaunch to change anything else.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties: { name: { type: string } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Deployment" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [Deployments]
+      summary: Terminate a deployment
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string, example: "Instance destruction initiated" }
+                  deployment:
+                    type: object
+                    properties:
+                      id: { type: string }
+                      status: { type: string, example: terminated }
+                      stoppedAt: { type: string, format: date-time }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /deployments/{id}/can-terminate:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [Deployments]
+      summary: Check whether a deployment can be terminated yet
+      description: Call before DELETE to avoid a rejected request if the provider enforces a minimum runtime.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  canTerminate: { type: boolean }
+                  runtime: { type: integer, description: "Minutes since the deployment started" }
+                  timeRemaining: { type: integer }
+                  minimumRuntime: { type: integer }
+                  reason: { type: string, description: "Present only when canTerminate is false" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /kubernetes/versions:
+    get:
+      tags: [Kubernetes]
+      summary: List available Kubernetes versions
+      description: For Voltage Park bare-metal CLUSTER deployments with a Kubernetes add-on.
+      parameters:
+        - { name: provider, in: query, required: true, schema: { type: string, enum: [voltage-park] } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  versions:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        version: { type: string, example: "1.35" }
+                        available: { type: boolean }
+
+  /kubernetes/{clusterId}/health:
+    parameters:
+      - { name: clusterId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [Kubernetes]
+      summary: Get Kubernetes cluster health
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  health:
+                    type: object
+                    properties:
+                      controlPlaneNodes: { $ref: "#/components/schemas/NodeHealth" }
+                      workerNodes: { $ref: "#/components/schemas/NodeHealth" }
+                      networkComponents: { $ref: "#/components/schemas/NodeHealth" }
+                      overallHealth: { type: string, example: healthy }
+
+  /ssh-keys:
+    get:
+      tags: [SSH Keys]
+      summary: List your SSH keys
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/SshKey" }
+    post:
+      tags: [SSH Keys]
+      summary: Add an SSH key
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, publicKey]
+              properties:
+                name: { type: string }
+                publicKey: { type: string }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SshKey" }
+
+  /ssh-keys/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [SSH Keys]
+      summary: Get SSH key details
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SshKey" }
+    delete:
+      tags: [SSH Keys]
+      summary: Delete an SSH key
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { type: object, properties: { success: { type: boolean } } }
+
+  /volumes:
+    get:
+      tags: [Volumes]
+      summary: List persistent storage volumes
+      parameters:
+        - { name: page, in: query, schema: { type: integer, default: 1 } }
+        - { name: limit, in: query, schema: { type: integer, default: 20 } }
+        - { name: status, in: query, schema: { type: string, enum: [available, attached, deleting, deleted] } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/VolumePage" }
+    post:
+      tags: [Volumes]
+      summary: Create a volume
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateVolumeRequest" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Volume" }
+
+  /volumes/pricing:
+    get:
+      tags: [Volumes]
+      summary: Get storage pricing per GB per hour
+      parameters:
+        - { name: provider, in: query, schema: { type: string, enum: [voltage-park, data-crunch, sesterce, spheron-ai] } }
+        - { name: region, in: query, schema: { type: string } }
+        - { name: cloudId, in: query, schema: { type: string }, description: "Sesterce only" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  provider: { type: string }
+                  hourlyRatePerGb: { type: number, format: float }
+
+  /volumes/regions:
+    get:
+      tags: [Volumes]
+      summary: List valid regions (and tiers/pricing) for a storage provider
+      parameters:
+        - { name: provider, in: query, schema: { type: string, enum: [voltage-park, data-crunch, sesterce, spheron-ai], default: voltage-park } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  hasAnyOffers: { type: boolean }
+                  regions:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: string }
+                        name: { type: string }
+                        hasGpuOffers: { type: boolean }
+                        minSizeGb: { type: integer }
+                        maxSizeGb: { type: integer }
+                        hourlyRatePerGb: { type: number, format: float }
+
+  /volumes/{volumeId}:
+    parameters:
+      - { name: volumeId, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [Volumes]
+      summary: Get volume details
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Volume" }
+    patch:
+      tags: [Volumes]
+      summary: Update a volume (rename/resize where the provider allows it)
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                sizeInGb: { type: integer }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Volume" }
+    delete:
+      tags: [Volumes]
+      summary: Delete a volume
+      description: Volume must not be attached to any active deployment.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { type: object, properties: { success: { type: boolean } } }
+
+  /volumes/{volumeId}/attach:
+    parameters:
+      - { name: volumeId, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [Volumes]
+      summary: Attach a volume to a running deployment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [deploymentId]
+              properties: { deploymentId: { type: string } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Volume" }
+
+  /volumes/{volumeId}/detach:
+    parameters:
+      - { name: volumeId, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [Volumes]
+      summary: Detach a volume from a deployment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [deploymentId]
+              properties: { deploymentId: { type: string } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Volume" }
+
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: The key Oru'el issued you. Never share it or embed it in client-side code.
+
+  responses:
+    Unauthorized:
+      description: Missing or invalid API key
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    NotFound:
+      description: Resource does not exist, or does not belong to you
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    BadRequest:
+      description: Invalid parameters or request body
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    RateLimited:
+      description: Too many requests
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        error: { type: string }
+        code: { type: string }
+        details: { type: object }
+
+    NodeHealth:
+      type: object
+      properties:
+        healthy: { type: integer }
+        total: { type: integer }
+        status: { type: string }
+
+    GpuOfferPage:
+      type: object
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/GpuModelGroup" }
+        total: { type: integer }
+        page: { type: integer }
+        limit: { type: integer }
+        totalPages: { type: integer }
+
+    GpuModelGroup:
+      type: object
+      description: One GPU model (e.g. "RTX 4090"), aggregating offers from every provider that has it.
+      properties:
+        gpuType: { type: string, example: rtx-4090 }
+        gpuModel: { type: string, example: "RTX 4090" }
+        displayName: { type: string }
+        popularity: { type: integer }
+        totalAvailable: { type: integer }
+        lowestPrice: { type: number, format: float, description: "USD/hr, markup already applied" }
+        highestPrice: { type: number, format: float, description: "USD/hr, markup already applied" }
+        averagePrice: { type: number, format: float, description: "USD/hr, markup already applied" }
+        providers:
+          type: array
+          items: { type: string }
+        offers:
+          type: array
+          items: { $ref: "#/components/schemas/GpuOffer" }
+
+    GpuOffer:
+      type: object
+      properties:
+        provider: { type: string, example: massed-compute }
+        offerId: { type: string }
+        name: { type: string }
+        description: { type: string }
+        vcpus: { type: integer }
+        memory: { type: integer, description: "GB RAM" }
+        storage: { type: integer, description: "GB disk" }
+        gpuCount: { type: integer }
+        price: { type: number, format: float, description: "USD/hr, markup already applied" }
+        spot_price: { type: number, format: float, description: "USD/hr for SPOT offers, markup already applied" }
+        available: { type: boolean }
+        region: { type: string }
+        gpu_memory: { type: integer, description: "GB VRAM per GPU" }
+        os_options:
+          type: array
+          items: { type: string }
+        instanceType: { type: string, enum: [SPOT, DEDICATED, CLUSTER] }
+        interconnectType: { type: string }
+        supportsCloudInit: { type: boolean }
+
+    CreateDeploymentRequest:
+      type: object
+      required: [provider, offerId, gpuType, gpuCount, region, operatingSystem, instanceType]
+      properties:
+        provider: { type: string, example: spheron-ai }
+        offerId: { type: string }
+        gpuType: { type: string, example: rtx-4090 }
+        gpuCount: { type: integer, example: 1 }
+        region: { type: string, example: us-east-1 }
+        operatingSystem: { type: string, example: ubuntu-22.04 }
+        instanceType: { type: string, enum: [SPOT, DEDICATED, CLUSTER] }
+        sshKeyId: { type: string, description: "Either this or ssh_public_key is required" }
+        ssh_public_key: { type: string, description: "Inline key content; a temporary key is created if used instead of sshKeyId" }
+        name: { type: string }
+        cloudInit:
+          type: object
+          properties:
+            runcmd: { type: array, items: { type: string } }
+            packages: { type: array, items: { type: string } }
+            writeFiles:
+              type: array
+              items:
+                type: object
+                properties:
+                  path: { type: string }
+                  content: { type: string }
+                  owner: { type: string }
+                  permissions: { type: string }
+        kubernetesAddon:
+          type: object
+          description: "Voltage Park bare-metal CLUSTER instances only"
+          properties:
+            version: { type: string, example: "1.35" }
+            authentication_config_b64: { type: string }
+        volumeIds:
+          type: array
+          items: { type: string }
+          description: "Per-provider attach limits apply - see /volumes/regions"
+
+    Deployment:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string, nullable: true }
+        providerId: { type: string }
+        gpuType: { type: string }
+        offerId: { type: string }
+        gpuCount: { type: integer }
+        region: { type: string }
+        operatingSystem: { type: string }
+        instanceType: { type: string }
+        ipAddress: { type: string, nullable: true }
+        status: { type: string, enum: [deploying, running, failed, terminated, terminated-provider] }
+        startedAt: { type: string, format: date-time, nullable: true }
+        stoppedAt: { type: string, format: date-time, nullable: true }
+        totalCost: { type: number, format: float, description: "USD accrued so far, markup already applied" }
+        hourlyRate: { type: number, format: float, description: "USD/hr, markup already applied" }
+        vcpus: { type: integer }
+        memory: { type: integer }
+        storage: { type: integer }
+        sshCommand: { type: string, nullable: true }
+        sshPort: { type: integer, nullable: true }
+        createdAt: { type: string, format: date-time }
+
+    SshKey:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        publicKey: { type: string }
+        fingerprint: { type: string }
+        createdAt: { type: string, format: date-time }
+
+    VolumePage:
+      type: object
+      properties:
+        volumes:
+          type: array
+          items: { $ref: "#/components/schemas/Volume" }
+        total: { type: integer }
+        page: { type: integer }
+        limit: { type: integer }
+        totalPages: { type: integer }
+
+    Volume:
+      type: object
+      properties:
+        id: { type: string }
+        volumeId: { type: string }
+        name: { type: string }
+        providerId: { type: string }
+        sizeInGb: { type: integer }
+        usedCapacityBytes: { type: integer }
+        status: { type: string, enum: [available, attached, deleting, deleted] }
+        hourlyRate: { type: number, format: float, description: "USD/GB/hr, markup already applied" }
+        attachedToDeploymentIds:
+          type: array
+          items: { type: string }
+        createdAt: { type: string, format: date-time }
+
+    CreateVolumeRequest:
+      type: object
+      required: [name, sizeInGb, provider]
+      properties:
+        name: { type: string, description: "lowercase alphanumeric with hyphens/underscores, max 60 chars" }
+        sizeInGb: { type: integer }
+        provider: { type: string, enum: [voltage-park, data-crunch, sesterce, spheron-ai] }
+        region: { type: string, description: "Required for data-crunch, sesterce, spheron-ai" }
+        cloudId: { type: string, description: "Required for sesterce only" }
+        deploymentId: { type: string, description: "Optionally attach at creation time" }

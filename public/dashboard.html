@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Oru'el Relay - Dashboard</title>
+<link rel="stylesheet" href="styles.css" />
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand">ORU&rsquo;EL <span class="dot">&middot;</span> RELAY</div>
+    <div class="brand-sub">Spheron GPU passthrough</div>
+
+    <nav>
+      <div class="nav-item active" data-view="overview">Overview</div>
+      <div class="nav-item" data-view="clients">Clients &amp; keys</div>
+      <div class="nav-item" data-view="deployments">Deployments</div>
+      <div class="nav-item" data-view="requests">Request log</div>
+      <div class="nav-item" data-view="exposure">API &amp; offers exposed</div>
+    </nav>
+
+    <div class="sidebar-footer">
+      <div class="brand-sub" id="whoami"></div>
+      <button class="btn-ghost" id="logoutBtn" style="width:100%">Sign out</button>
+    </div>
+  </aside>
+
+  <main>
+    <!-- OVERVIEW -->
+    <section class="view active" id="view-overview">
+      <h1 class="page-title">Overview</h1>
+      <p class="page-sub">What Podstack is doing with the relay right now.</p>
+
+      <div class="stat-grid" id="statGrid"></div>
+
+      <div class="fader-panel">
+        <h2>Live markup</h2>
+        <div class="hint">Every price Podstack sees is base Spheron cost &times; this. Changes apply within seconds, no restart.</div>
+        <div class="fader-row">
+          <input type="range" id="markupSlider" min="0" max="100" step="1" value="20" />
+          <div class="fader-readout"><span id="markupValue">20</span>%</div>
+        </div>
+        <div class="fader-actions">
+          <button class="btn-primary" id="saveMarkupBtn">Apply</button>
+          <span class="fader-status" id="markupStatus"></span>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header"><h2>Cost &amp; margin by client</h2></div>
+        <div style="padding:18px"><canvas id="marginChart" height="90"></canvas></div>
+      </div>
+    </section>
+
+    <!-- CLIENTS -->
+    <section class="view" id="view-clients">
+      <h1 class="page-title">Clients &amp; keys</h1>
+      <p class="page-sub">Issue and revoke API keys for Podstack (or any other downstream partner).</p>
+
+      <div class="panel">
+        <div class="panel-header">
+          <h2>All clients</h2>
+          <button class="btn-primary" id="newClientBtn">+ New client</button>
+        </div>
+        <table id="clientsTable">
+          <thead><tr><th>Name</th><th>Key prefix</th><th>Status</th><th>Deployments</th><th>Requests</th><th>Spend cap</th><th></th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- DEPLOYMENTS -->
+    <section class="view" id="view-deployments">
+      <h1 class="page-title">Deployments</h1>
+      <p class="page-sub">Every GPU instance launched through the relay, with real Spheron cost vs. what Podstack was billed.</p>
+
+      <div class="panel">
+        <div class="toolbar">
+          <select id="deployStatusFilter">
+            <option value="">All statuses</option>
+            <option value="running">Running</option>
+            <option value="deploying">Deploying</option>
+            <option value="terminated">Terminated</option>
+            <option value="failed">Failed</option>
+          </select>
+        </div>
+        <table>
+          <thead><tr><th>Client</th><th>GPU</th><th>Provider / Region</th><th>Status</th><th>Spheron rate/hr</th><th>Billed rate/hr</th><th>Billed cost</th><th>Margin</th></tr></thead>
+          <tbody id="deploymentsBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- REQUESTS -->
+    <section class="view" id="view-requests">
+      <h1 class="page-title">Request log</h1>
+      <p class="page-sub">Raw call-by-call history of everything Podstack has asked the relay for.</p>
+
+      <div class="panel">
+        <div class="toolbar">
+          <input type="text" id="pathFilter" placeholder="filter by path, e.g. gpu-offers" />
+          <button class="btn-ghost" id="refreshRequestsBtn">Refresh</button>
+        </div>
+        <table>
+          <thead><tr><th>Time</th><th>Client</th><th>Method</th><th>Path</th><th>Status</th><th>ms</th></tr></thead>
+          <tbody id="requestsBody"></tbody>
+        </table>
+      </div>
+    </section>
+    <!-- API & OFFERS EXPOSED -->
+    <section class="view" id="view-exposure">
+      <h1 class="page-title">API &amp; offers exposed</h1>
+      <p class="page-sub">
+        Exactly what Podstack can reach through the relay right now, and every live GPU offer as they'll see it.
+        Full interactive spec: <a href="/docs" target="_blank" style="color:var(--violet)">/docs (Swagger UI)</a> &middot;
+        raw spec: <a href="/docs/openapi.json" target="_blank" style="color:var(--violet)">/docs/openapi.json</a>
+      </p>
+
+      <div class="panel">
+        <div class="panel-header"><h2>Endpoint surface</h2></div>
+        <table>
+          <thead><tr><th>Endpoint</th><th>Methods</th><th>Markup applied</th><th>Scoped per client</th></tr></thead>
+          <tbody>
+            <tr><td class="mono">/providers</td><td class="mono">GET</td><td>no pricing</td><td>n/a</td></tr>
+            <tr><td class="mono">/gpu-offers</td><td class="mono">GET</td><td>yes</td><td>n/a (public catalog)</td></tr>
+            <tr><td class="mono">/deployments</td><td class="mono">POST, GET</td><td>yes</td><td>yes</td></tr>
+            <tr><td class="mono">/deployments/:id</td><td class="mono">GET, PATCH, DELETE</td><td>yes</td><td>yes</td></tr>
+            <tr><td class="mono">/deployments/:id/can-terminate</td><td class="mono">GET</td><td>no pricing</td><td>yes</td></tr>
+            <tr><td class="mono">/kubernetes/versions</td><td class="mono">GET</td><td>no pricing</td><td>n/a</td></tr>
+            <tr><td class="mono">/kubernetes/:clusterId/health</td><td class="mono">GET</td><td>no pricing</td><td>not yet (see README)</td></tr>
+            <tr><td class="mono">/ssh-keys</td><td class="mono">GET, POST</td><td>no pricing</td><td>not yet (see README)</td></tr>
+            <tr><td class="mono">/ssh-keys/:id</td><td class="mono">GET, DELETE</td><td>no pricing</td><td>not yet (see README)</td></tr>
+            <tr><td class="mono">/volumes</td><td class="mono">GET, POST</td><td>yes</td><td>no (shared account)</td></tr>
+            <tr><td class="mono">/volumes/:id</td><td class="mono">GET, PATCH, DELETE</td><td>yes</td><td>no (shared account)</td></tr>
+            <tr><td class="mono">/volumes/:id/attach, /detach</td><td class="mono">POST</td><td>no pricing</td><td>no (shared account)</td></tr>
+            <tr><td class="mono">/volumes/pricing, /regions</td><td class="mono">GET</td><td>yes</td><td>n/a</td></tr>
+          </tbody>
+        </table>
+        <div class="empty-state" style="text-align:left;padding:14px 18px">
+          Not exposed at all: Spheron's <span class="mono">/balance</span> and <span class="mono">/teams</span> -
+          those are Oru'el's own account info and are never relayed.
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header">
+          <h2>Live GPU offers - exactly as Podstack sees them</h2>
+          <div style="display:flex;gap:8px;align-items:center">
+            <input type="text" id="offersSearch" placeholder="filter by GPU, e.g. h100" style="background:var(--panel-raised);border:1px solid var(--line);color:var(--text);border-radius:6px;padding:7px 10px;font-size:12px" />
+            <button class="btn-ghost" id="refreshOffersBtn">Refresh</button>
+          </div>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>GPU</th><th>Provider</th><th>Region</th><th>Type</th><th>vCPU/RAM/Disk</th>
+              <th>Spheron raw</th><th>Podstack sees</th><th>Margin/hr</th><th>Available</th>
+            </tr>
+          </thead>
+          <tbody id="offersBody"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+</div>
+
+<!-- New client modal -->
+<div class="modal-backdrop" id="newClientModal">
+  <div class="modal">
+    <h3>New client</h3>
+    <div class="field">
+      <label for="newClientName">Name</label>
+      <input type="text" id="newClientName" placeholder="Podstack - Production" />
+    </div>
+    <div class="field">
+      <label for="newClientCap">Spend cap (USD, optional)</label>
+      <input type="number" id="newClientCap" placeholder="leave blank for unlimited" />
+    </div>
+    <div id="newClientKeyOut"></div>
+    <div class="modal-actions">
+      <button class="btn-ghost" id="closeNewClientModal">Close</button>
+      <button class="btn-primary" id="createClientBtn">Create key</button>
+    </div>
+  </div>
+</div>
+
+<script src="dashboard.js"></script>
+</body>
+</html>

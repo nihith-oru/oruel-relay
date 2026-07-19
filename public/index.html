@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Oru'el Relay - Sign in</title>
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="login-shell">
+    <div class="login-card">
+      <div class="eyebrow">Oru&rsquo;el &times; Spheron</div>
+      <h1>Relay control panel</h1>
+      <form id="loginForm">
+        <div class="field">
+          <label for="username">Username</label>
+          <input type="text" id="username" autocomplete="username" required />
+        </div>
+        <div class="field">
+          <label for="password">Password</label>
+          <input type="password" id="password" autocomplete="current-password" required />
+        </div>
+        <button type="submit" class="btn-primary" style="width:100%">Sign in</button>
+        <div class="error-text" id="loginError"></div>
+      </form>
+    </div>
+  </div>
+  <script>
+    document.getElementById("loginForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const username = document.getElementById("username").value;
+      const password = document.getElementById("password").value;
+      const errEl = document.getElementById("loginError");
+      errEl.textContent = "";
+      try {
+        const res = await fetch("/admin/api/auth/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username, password }),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          errEl.textContent = data.error || "Sign in failed";
+          return;
+        }
+        window.location.href = "/admin/dashboard.html";
+      } catch {
+        errEl.textContent = "Network error";
+      }
+    });
+
+    // If already signed in, skip straight to the dashboard.
+    fetch("/admin/api/auth/me").then((r) => {
+      if (r.ok) window.location.href = "/admin/dashboard.html";
+    });
+  </script>
+</body>
+</html>

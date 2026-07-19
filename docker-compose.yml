@@ -1,0 +1,17 @@
+version: "3.9"
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: oruel-relay-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: oruel
+      POSTGRES_PASSWORD: oruel_password
+      POSTGRES_DB: oruel_relay
+    ports:
+      - "5433:5432"
+    volumes:
+      - oruel_relay_pgdata:/var/lib/postgresql/data
+
+volumes:
+  oruel_relay_pgdata:

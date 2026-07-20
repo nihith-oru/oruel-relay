@@ -15,6 +15,7 @@ export const config = {
   domain: process.env.DOMAIN ?? "localhost",
 
   spheronApiKey: required("SPHERON_API_KEY"),
+  spheronTeamId: required("SPHERON_TEAM_ID"), // <-- Added this line
   spheronBaseUrl: process.env.SPHERON_BASE_URL ?? "https://app.spheron.ai",
 
   defaultMarkupPercent: Number(process.env.DEFAULT_MARKUP_PERCENT ?? 20),

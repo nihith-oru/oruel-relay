@@ -3,18 +3,28 @@ import { spheronRequest } from "../../spheron/client";
 import { applyMarkup } from "../../markup";
 import { getMarkupPercent } from "../../services/settingsService";
 import { prisma } from "../../db";
+import { config } from "../../config";
 
 export const deploymentsRouter = Router();
 
 // POST /api/deployments - launch a GPU instance.
-// teamId is stripped: that's Oru'el's own Spheron team structure and must
-// never be set by a downstream caller.
+// The caller's `teamId` (if any) is stripped: that's Oru'el's own Spheron
+// team structure and must never be settable by a downstream partner. We then
+// inject Oru'el's own `teamId` from config, because Spheron requires an
+// explicit team on every authenticated deployment (calls with no teamId are
+// rejected with 400 "Team ID is required for authenticated deployments").
 deploymentsRouter.post("/", async (req, res, next) => {
   try {
-    const { teamId, ...rest } = req.body ?? {};
+    const { teamId: _ignored, ...rest } = req.body ?? {};
+
+    const body = {
+      ...rest,
+      teamId: config.spheronTeamId,
+    };
+
     const created: any = await spheronRequest("/api/deployments", {
       method: "POST",
-      body: rest,
+      body,
     });
 
     const deploymentId = created.id ?? created.deploymentId;
@@ -52,6 +62,9 @@ deploymentsRouter.post("/", async (req, res, next) => {
     next(err);
   }
 });
+
+// (rest of the file — GET, GET /:id, PATCH /:id, DELETE /:id, /can-terminate —
+// unchanged; keep your existing handlers below this point.)
 
 // GET /api/deployments - only this client's own deployments, never Oru'el's
 // whole Spheron fleet (which may include other Podstack-equivalent partners).

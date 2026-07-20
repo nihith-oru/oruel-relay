@@ -17,7 +17,10 @@ const app = express();
 
 app.use(express.json({ limit: "1mb" }));
 app.use(cookieParser());
-app.use(cors());
+app.use(cors({
+  origin: [config.baseUrl, "http://localhost:4000", "http://localhost:3000"],
+  credentials: true,
+}));
 
 // --- API documentation for Podstack (public, no auth needed to read docs) ---
 const openapiSpec = yaml.load(

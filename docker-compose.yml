@@ -13,5 +13,18 @@ services:
     volumes:
       - oruel_relay_pgdata:/var/lib/postgresql/data
 
+  app:
+    build: .
+    container_name: oruel-relay-app
+    restart: unless-stopped
+    ports:
+      - "80:4000"
+    env_file:
+      - .env
+    environment:
+      - DATABASE_URL=postgresql://oruel:oruel_password@postgres:5432/oruel_relay?schema=public
+    depends_on:
+      - postgres
+
 volumes:
   oruel_relay_pgdata:

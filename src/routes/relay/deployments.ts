@@ -17,19 +17,24 @@ deploymentsRouter.post("/", async (req, res, next) => {
       body: rest,
     });
 
+    const deploymentId = created.id ?? created.deploymentId;
+    if (!deploymentId) {
+      throw new Error("Spheron response is missing a deployment ID");
+    }
+
     await prisma.deploymentRecord.create({
       data: {
         clientId: req.client!.id,
-        spheronDeploymentId: created.id,
-        name: created.name ?? null,
-        provider: created.providerId,
-        gpuType: created.gpuType,
-        offerId: created.offerId,
-        region: created.region,
-        instanceType: created.instanceType,
-        status: created.status,
-        spheronHourlyRate: created.originalHourlyRate ?? created.hourlyRate ?? 0,
-        spheronTotalCostUsd: created.totalCost ?? 0,
+        spheronDeploymentId: deploymentId,
+        name: created.name ?? rest.name ?? null,
+        provider: created.providerId ?? created.provider ?? rest.provider ?? "unknown",
+        gpuType: created.gpuType ?? rest.gpuType ?? "unknown",
+        offerId: created.offerId ?? rest.offerId ?? "unknown",
+        region: created.region ?? rest.region ?? "unknown",
+        instanceType: created.instanceType ?? rest.instanceType ?? "SPOT",
+        status: created.status ?? "deploying",
+        spheronHourlyRate: Number(created.originalHourlyRate ?? created.hourlyRate ?? 0),
+        spheronTotalCostUsd: Number(created.totalCost ?? 0),
       },
     });
 
@@ -40,7 +45,7 @@ deploymentsRouter.post("/", async (req, res, next) => {
       gpuType: rest.gpuType,
       gpuCount: rest.gpuCount,
       region: rest.region,
-      spheronDeploymentId: created.id,
+      spheronDeploymentId: deploymentId,
     };
     res.status(201).json(applyMarkup(created, markupPercent));
   } catch (err) {

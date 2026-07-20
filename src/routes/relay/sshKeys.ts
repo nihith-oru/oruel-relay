@@ -9,9 +9,7 @@ export const sshKeysRouter = Router();
 
 sshKeysRouter.get("/", async (req, res, next) => {
   try {
-    const data = await spheronRequest("/api/ssh-keys", {
-      query: { userId: req.query.userId as string, teamId: req.query.teamId as string },
-    });
+    const data = await spheronRequest("/api/ssh-keys");
     res.json(data);
   } catch (err) {
     next(err);

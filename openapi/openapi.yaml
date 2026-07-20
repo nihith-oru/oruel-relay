@@ -30,8 +30,8 @@ externalDocs:
   url: https://docs.spheron.ai/api-reference
 
 servers:
-  - url: https://relay.oruel.example/api
-    description: Production (replace with your real deployed hostname)
+  - url: https://relay.oru-el.com/api
+    description: Production (GCP VM via Cloudflare)
   - url: http://localhost:4000/api
     description: Local development
 

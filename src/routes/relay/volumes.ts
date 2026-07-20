@@ -41,7 +41,6 @@ volumesRouter.get("/", async (req, res, next) => {
   try {
     const data = await spheronRequest("/api/volumes", {
       query: {
-        teamId: req.query.teamId as string,
         page: req.query.page as string,
         limit: req.query.limit as string,
         status: req.query.status as string,

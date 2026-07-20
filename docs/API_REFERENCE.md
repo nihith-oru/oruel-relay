@@ -1,8 +1,6 @@
-# Oru'el GPU Relay API Reference
+# Oru'el GPU API Reference
 
-Welcome to the **Oru'el GPU Relay API**. This API acts as a high-performance proxy and lifecycle relay for Spheron AI's GPU infrastructure. 
-
-By integrating with this API, you get direct programmatic access to rent, manage, and scale GPU instances, persistent volumes, and Kubernetes resources.
+By integrating with this API, you get direct programmatic access to rent, manage, and scale GPU instances.
 
 ---
 
@@ -34,13 +32,13 @@ curl -H "X-API-Key: oruel_live_YOUR_API_KEY_HERE" \
 
 ## 2. Pricing & Markup
 
-All currency values (lowestPrice, price, hourlyRate, totalCost, etc.) returned by the Oru'el Relay API are in **USD** and **already include a 20% markup** (or the current Oru'el partnership rate). 
+All currency values (lowestPrice, price, hourlyRate, totalCost, etc.) returned by the Oru'el API are in **USD** and **already include  markaup** . 
 
 There is no need to manually calculate markups on your end; the rate you see is the exact billing rate you accrue.
 
 ---
 
-## 3. Rate Limits
+## 3. Rate Limits (Can be modified as per demand)
 
 Throttling is applied per-client (associated with your API key) to protect upstream providers:
 *   **General Endpoints:** Maximum of `250 requests` per 15-minute window.
@@ -51,21 +49,6 @@ If you exceed these limits, the API returns a `429 Too Many Requests` status cod
 ---
 
 ## 4. Endpoints Reference
-
-### Providers
-#### `GET /providers`
-Lists all supported hardware and bare-metal GPU cloud providers.
-
-*   **Request Example:**
-    ```bash
-    curl -H "X-API-Key: $ORUEL_API_KEY" https://relay.oru-el.com/api/providers
-    ```
-*   **Response Example (200 OK):**
-    ```json
-    ["voltage-park", "data-crunch", "massed-compute", "sesterce", "spheron-ai"]
-    ```
-
----
 
 ### GPU Offers
 #### `GET /gpu-offers`
@@ -287,15 +270,6 @@ Detach volume from an instance.
 
 #### `GET /volumes/pricing`
 Get storage rates per GB per hour (including Oru'el markup).
-
----
-
-### Kubernetes (Voltage Park Clusters Only)
-#### `GET /kubernetes/versions`
-Fetch supported Kubernetes engine versions.
-
-#### `GET /kubernetes/{clusterId}/health`
-Obtain current health and status metrics of a running cluster.
 
 ---
 
